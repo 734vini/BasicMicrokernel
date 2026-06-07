@@ -7,9 +7,16 @@ static int current = 0;
 
 /*   Round-Robin padrão   */
 
-static int round_robin()
+static int round_robin(void)
 {
-    return (current + 1) % task_count;
+    int next = (current + 1) % task_count;
+    int tries = 0;
+    while (!tasks[next].active && tries < task_count)
+    {
+        next = (next + 1) % task_count;
+        tries++;
+    }
+    return next;
 }
 
 /*   Algoritmo atual   */
@@ -29,10 +36,9 @@ void yield()
     int prev = current;
     int next = current_algo();
 
+    if (prev == next) return;
     current = next;
-
-    context_switch(tasks[prev].regs,
-                   tasks[next].regs);
+    context_switch(tasks[prev].regs, tasks[next].regs);
 }
  
 /*   Início   */
@@ -42,5 +48,13 @@ void scheduler_start()
     if (task_count == 0)
         return;
 
-    tasks[0].entry();
+    for (int i = 0; i < task_count; i++)
+    {
+        if (tasks[i].active)
+        {
+            current = i;
+            tasks[i].entry();
+            return;
+        }
+    }
 }

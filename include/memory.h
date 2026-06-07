@@ -13,3 +13,4 @@ void kfree(void *ptr);
 /* Informações */
 uint64_t memory_used(void);
 uint64_t memory_free(void);
+uint64_t memory_total(void);   /* adicionado conforme exigido no PDF */

@@ -1,56 +1,116 @@
 #include "memory.h"
+#include <stdint.h>
 
-/*   Configuração do heap   */
+/* Configuração do heap */
 
-#define HEAP_START 0x80400000UL
-#define HEAP_SIZE  (8 * 1024 * 1024)   // 8 MB
+#define HEAP_START  0x80400000UL
+#define HEAP_SIZE   (64 * 1024)        /* 64 KB */
 
-static uint8_t *heap_base = (uint8_t*)HEAP_START;
-static uint8_t *heap_end  = (uint8_t*)(HEAP_START + HEAP_SIZE);
-static uint8_t *heap_ptr;
+/* Cabeçalho de bloc  */
 
-/*   Inicialização   */
+typedef struct block
+{
+    uint64_t      size;    /* bytes de dados (sem contar o header)  */
+    int           free;    /* 1 = livre, 0 = ocupado                */
+    struct block *next;    /* próximo bloco na lista encadeada      */
+} block_t;
+
+#define HEADER_SIZE  sizeof(block_t)   /* 24 bytes em RV64 */
+
+/* Raiz da lista */
+
+static block_t *heap_list = (block_t *)HEAP_START;
+
+/* memory_init */
 
 void memory_init(void)
 {
-    heap_ptr = heap_base;
+    /* Heap começa como um único bloco livre cobrindo tudo */
+    heap_list->size = HEAP_SIZE - HEADER_SIZE;
+    heap_list->free = 1;
+    heap_list->next = 0;
 }
 
-/*   Alocador bump   */
+/* kmalloc — First Fit */
 
 void *kmalloc(uint64_t size)
 {
     if (size == 0)
         return 0;
 
-    /* Alinhamento para 8 bytes */
-    size = (size + 7) & ~7ULL;
+    /* Alinhamento de 8 bytes */
+    size = (size + 7) & ~(uint64_t)7;
 
-    if (heap_ptr + size > heap_end)
-        return 0;   // out of memory
+    for (block_t *cur = heap_list; cur; cur = cur->next)
+    {
+        if (!cur->free || cur->size < size)
+            continue;
 
-    void *ptr = heap_ptr;
-    heap_ptr += size;
+        /* Divisão: só divide se sobrar espaço para header + mínimo de 8 bytes */
+        if (cur->size >= size + HEADER_SIZE + 8)
+        {
+            block_t *split  = (block_t *)((uint8_t *)cur + HEADER_SIZE + size);
+            split->size     = cur->size - size - HEADER_SIZE;
+            split->free     = 1;
+            split->next     = cur->next;
 
-    return ptr;
+            cur->size = size;
+            cur->next = split;
+        }
+
+        cur->free = 0;
+        return (void *)((uint8_t *)cur + HEADER_SIZE);
+    }
+
+    return 0;   /* out of memory */
 }
 
-/*   Free mínimo   */
+/*  kfree — com coalescência  */
 
 void kfree(void *ptr)
 {
-    /* Implementação mínima: não faz nada */
-    (void)ptr;
+    if (!ptr)
+        return;
+
+    /* Recupera o cabeçalho a partir do ponteiro de dados */
+    block_t *blk = (block_t *)((uint8_t *)ptr - HEADER_SIZE);
+    blk->free = 1;
+
+    /* Coalescência: une blocos livres adjacentes */
+    for (block_t *cur = heap_list; cur; )
+    {
+        if (cur->free && cur->next && cur->next->free)
+        {
+            /* Absorve o próximo bloco (header + dados) */
+            cur->size += HEADER_SIZE + cur->next->size;
+            cur->next  = cur->next->next;
+            /* Não avança: pode coalescer de novo com o novo next */
+        }
+        else
+        {
+            cur = cur->next;
+        }
+    }
 }
 
-/*   Estatísticas   */
+/*  Estatísticas  */
 
 uint64_t memory_used(void)
 {
-    return (uint64_t)(heap_ptr - heap_base);
+    uint64_t used = 0;
+    for (block_t *c = heap_list; c; c = c->next)
+        if (!c->free)
+            used += c->size;
+    return used;
 }
 
 uint64_t memory_free(void)
 {
-    return (uint64_t)(heap_end - heap_ptr);
+    /* Complemento: total - usado (inclui overhead de headers como "disponível") */
+    return HEAP_SIZE - memory_used();
+}
+
+uint64_t memory_total(void)
+{
+    return HEAP_SIZE;
 }
