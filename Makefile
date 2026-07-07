@@ -9,7 +9,8 @@ CFLAGS = -march=rv64gc -mabi=lp64 \
          -Wall -Iinclude
 
 OBJS = start.o trap_entry.o context.o \
-       main.o task.o scheduler.o uart.o string.o memory.o
+       main.o task.o scheduler.o uart.o string.o memory.o \
+       block.o inode.o treefs.o
 
 all: kernel.elf
 
@@ -34,6 +35,12 @@ string.o:     kernel/string.c
 	$(CROSS)gcc $(CFLAGS) -c kernel/string.c
 memory.o:     kernel/memory.c
 	$(CROSS)gcc $(CFLAGS) -c kernel/memory.c
+block.o:      drivers/block.c
+	$(CROSS)gcc $(CFLAGS) -c drivers/block.c
+inode.o:      kernel/inode.c
+	$(CROSS)gcc $(CFLAGS) -c kernel/inode.c
+treefs.o:     kernel/treefs.c
+	$(CROSS)gcc $(CFLAGS) -c kernel/treefs.c
 
 qemu: kernel.elf
 	qemu-system-riscv64 -machine virt -bios none -kernel kernel.elf -nographic
